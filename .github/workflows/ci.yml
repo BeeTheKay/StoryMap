@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check app.js syntax
+        run: node -e "new Function(require('fs').readFileSync('app.js', 'utf8'))"
+
+      - name: Check server.js syntax
+        run: node --check server.js
+
+      - name: Server starts and responds
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          # Wait up to 5 seconds for the server to be ready
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:3000/api/data && break
+            sleep 0.5
+          done
+          # Verify the response is valid JSON with expected shape
+          curl -sf http://localhost:3000/api/data | node -e "
+            const data = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+            if (!Array.isArray(data.books))         throw new Error('missing books');
+            if (!Array.isArray(data.characters))    throw new Error('missing characters');
+            if (!Array.isArray(data.relationships)) throw new Error('missing relationships');
+            console.log('Data shape OK');
+          "
+          kill $SERVER_PID
